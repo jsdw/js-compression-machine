@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<head>
+	<title>James's Compressor</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+	<meta name="Description" content="A file compression utility wrote entirely in Javascript by James Wilson. Makes use of two custom file encoding algorithms which combine Sequitur, Huffman coding, Move to Front coding, and the Burrows-Wheeler transform and can encode and decode multiple files and output the result for download."/>
+	<meta name="keywords" content="File Compression Javascript"/>
+	<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+	<script type="text/javascript" src="js/compression.js"></script>
+	<link href="css/style.css" rel="stylesheet" type="text/css"/>
+	<link href='//fonts.googleapis.com/css?family=Source+Code+Pro' rel='stylesheet' type='text/css'>
+
+	<!--<script type="text/javascript" src="js/bitstream.js"></script>
+	<script type="text/javascript" src="js/linkeditem.js"></script>
+	<script type="text/javascript" src="js/huffmantree.js"></script>
+	<script type="text/javascript" src="js/sequitur.js"></script>
+	<script type="text/javascript" src="js/bwt-and-mtf.js"></script>
+	<script type="text/javascript" src="js/mergesort.js"></script>-->
+
+</head>
+
+<body>
+
+<input id="files" type="file" style="display:block;position:absolute;margin-top:-9999px;"></input>
+
+<div id="container">
+<div id="inner-container">
+	<div id="contents">
+
+		<div class="single active" id="beginning">
+			<h1>Function</h1>
+			<p class="center">
+				<span class="link" target="#uploader" id="link-compress" title="Select this to compress your files.">COMPRESS</span> / 
+				<span class="link" target="#uploader" id="link-decompress" title="Select this to decompress files compressed using this page.">DECOMPRESS</span>
+			</p>
+		</div>
+
+		<div class="single" id="uploader">
+			<h1>Upload</h1>
+			<p>Click <span class="link" id="link-upload">here</span> or drag files to <span id="mode"></span>.</p>
+			<table>
+				<tr><td>Files Added:</td> <td id="filesadded">0</td></tr>
+			</table>
+			<div id="progress-bar">
+				<div id="progress-inner"></div>
+				<div id="progress-value">0.00%</div>
+			</div>
+			<div class="controls">
+				<span id="mode-option"><span class="link" target="#options" id="link-options">Options</span> / </span>
+				<span class="link" target="#beginning" id="link-cancel">Cancel</span> / 
+				<span class="link" target="#output" id="link-finish" title="Click here to finalize compression/decompression and get your files.">Next</span>
+			</div>
+		</div>		
+
+		<div class="single" id="options">
+			<h1>Options</h1>
+			<table>
+				<tr title="Select the algorithm you'd like to use (this will cancel any current oeprations). Sequitur is a good all rounder, but MTF (actually, a combination of a Burrow-Wheeler transform and Move to Front coding) can be faster, and better in some cases."><td>Algorithm:</td> 
+					<td id="input-algorithm">
+						<span class="link selected">Sequitur</span> / 
+						<span class="link">MTF</span>
+					</td></tr>
+				<tr title="Select the size of the chunks sent from the input files for compression. Smaller chunks use less memory and result in a more precise loading bar, but are also slower."><td>Input Block Size:</td> 
+					<td>
+						<input type="text" id="input-inputblocksize" ></input>kB
+					</td></tr>
+				<tr title="This setting controls the size of the compressed blocks in the output file. Larger blocks can be more memory intensive, and take longer to compress (especially in the case of MTF), but also lead to better overall compression."><td>Output Block Size:</td>
+					<td>
+						<input type="text" id="input-outputblocksize"></input>kB
+					</td></tr>
+				<tr algorithms="Sequitur" title="This setting (Sequitur only) determines how many of the generates rules are kept. A higher number leads to more rules being removed. Rules are created every time a repeating pattern is seen, but rules that are not used often introduce a larger overhead than the savings they bring."><td>Rule Utility:</td> 
+					<td>
+						<input type="text" id="input-ruleutility"></input>
+					</td></tr>
+			</table>
+			<div class="controls">
+				<span class="link" target="#uploader" id="link-applyoptions">Apply</span> / 
+				<span class="link" target="#uploader">Cancel</span>
+			</div>
+		</div>
+
+		<div class="single" id="output">
+			<h1>Output</h1>
+			<p>Output:</p>
+			<div id="output-files"></div>
+			<div class="controls">
+				<span class="link" target="#beginning" id="link-restart">Restart</span>
+			</div>
+		</div>
+
+	</div>
+</div>
+<div id="log-container">
+	<div id="log"><div id="log-inner"></div></div>
+</div>
+</div>
+
+
+
+
+<script type="text/javascript">
+
+/**** Implement support for things to help improve compatibility ****/
+
+//make use of prefixed versions of stuff:
+Worker.prototype.postMessage = Worker.prototype.webkitPostMessage || Worker.prototype.mozPostMessage || Worker.prototype.postMessage;
+File.prototype.slice = File.prototype.webkitSlice || File.prototype.mozSlice || File.prototype.slice;
+window.URL = window.URL || window.webkitURL;
+window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder;
+
+//if Blob constructor does not appear to work, implement it using BlobBuilder instead:
+try { new Blob(); }
+catch(e)
+	{
+	window.Blob = function(a, properties)
+		{
+		if(!(a instanceof Array)) throw Error("Blob::argument 1 must be an array");
+		if(typeof properties == "undefined") properties = {};
+		var b = new BlobBuilder();
+
+		for(var i = 0; i < a.length; i++)
+			{
+			if(typeof a[i].buffer != "undefined")
+				{
+				var offset = a.byteOffset, length = a.byteLength;
+				if(offset != 0 || length != a.buffer.byteLength) a = a.buffer.slice(offset, offset+length);
+				}
+			b.append(a[i]);
+			}
+
+		return b.getBlob(properties.type);
+		}
+	}
+
+/**** End of support implementations ****/
+
+//available algorithms and their class names:
+var available_algorithms = {
+	"MTF": "BWTCompressor",
+	"Sequitur": "Sequitur"
+	}
+
+var todo = "add";
+var fade_speed = 200;
+var files_added = 0;
+
+function log(type, value)
+	{
+	if(type === "progress") progress(value.current, value.total);
+	else if(type === "general") 
+		{
+		var $n = $('<div style="display:none;">'+value+'</div>')
+		$("#log-inner").append($n);
+		$n.fadeIn();
+		setTimeout(function()
+			{
+			$n.fadeOut(function(){$n.remove();});
+			}, 10000)
+		}
+	}
+
+function progress(current, total)
+	{
+	var percent = (current/total)*100;
+	if(isNaN(percent)) percent = 0;
+	if(percent == 100) stopAnimation();
+	var percent_string = percent.toFixed(2) + "%";
+	$("#progress-inner").css("width", percent_string);
+	$("#progress-value").html(percent_string);
+	}
+
+function cancel()
+	{
+	progress(0, 100);
+	$("#filesadded").html(0);
+	compressor.cancel();
+	files_added = 0;
+	$("#files").val("");
+
+	//remove any output files and revoke URLs:
+	var $out = $("#output-files");
+	$out.children("a").each(function()
+		{
+		URL.revokeObjectURL(this.href);
+		});
+	$out.empty();
+	}
+
+compressor.set("finished_decompression_callback", function(o)
+	{
+	var k = 0, blob, url, $out = $("#output-files"); 
+	for(var i in o.details) 
+		{
+		blob = new Blob([o.output.slice(k, k+o.details[i])]); 
+		k += o.details[i];
+		var name = i.slice(2);
+		url = URL.createObjectURL(blob);
+		$out.append('<a href="'+url+'" download="'+name+'">'+name+'</a><br>');
+		}
+	center();
+	});
+
+compressor.set("error_callback", function(type, error)
+	{
+	if(type == "decompression")
+		{
+		--files_added;
+		$("#filesadded").html(files_added);
+		log("general", "Decompression failed, ignoring file");
+		}
+	});
+
+function handleFile(e)
+	{
+	//either for files dragged on, or given through input:
+	var files = e.dataTransfer? e.dataTransfer.files : e.target.files;
+	
+	var added = compressor[todo](files);
+	files_added += added;
+	if(added) startAnimation();
+	$("#filesadded").html(files_added);
+	$("#files").val("");
+
+	e.preventDefault();
+	return false;
+	}
+
+
+
+// some commands to finalize compression, decompress, and return URL's to decompreses files:
+
+//finalize compression:
+//var compressed, b; compressor.finalizeCompression(function(e){compressed = e; b = new Blob([compressed]); console.log("compressed");});
+//decompress:
+//compressor.decompress(new Blob([compressed]), decompressionCallback);
+//get links for decompressed files:
+//var k = 0; for(var i in test.details) {var blob = new Blob([test.output.slice(k, k+test.details[i])]); k += test.details[i]; console.log(i); console.log(window.URL.createObjectURL(blob)); }
+
+//(almost) centers item vertically:
+var center_timeout;
+function center()
+	{
+	clearTimeout(center_timeout);
+	center_timeout = setTimeout(function()
+		{
+		var $target = $(".active");
+		var $container = $("#contents");
+		$container.stop(true);
+
+		var offset = $target.offset().top;
+		var height = $target.height();
+		var window_height = $(window).height();
+
+		var new_offset = window_height/2 - height/2 - 51;
+		var delta = new_offset - offset;
+
+		$container.animate({top:"+="+delta}, 500);
+		}, 100);
+	}
+
+//loading bar animation:
+function startAnimation()
+	{
+	var $progress = $("#progress-inner");
+	if(!$progress.is(":animated"))
+		{
+		$progress.animate({backgroundPositionY:"+=2000000px"}, 100000000, "linear");
+		}
+	}
+function stopAnimation()
+	{
+	$("#progress-inner").stop();
+	}
+
+//goes to item:
+function goto(target)
+	{
+	//compare offsets and to something different going back than forward..
+	var $original = $(".active");
+	var $target = $(target);
+
+	$original.removeClass("active").append('<div class="overlay"></div>');
+	$target.addClass("active").css("display", "block").find(".overlay").remove();
+
+	var original_offset = $original.offset().top;
+	var target_offset = $target.offset().top;
+
+	if(original_offset < target_offset) //if we need to move down
+		{
+		$original.stop().animate({opacity:0.5}, fade_speed);
+		$target.stop().animate({opacity: 1});
+		}
+	else //if we need to move up
+		{
+		//fade out everything below target:
+		$(".single").not($target).not($target.prevAll()).animate({opacity: 0}, function() {$(this).css("display", "none");});
+		$target.stop().animate({opacity: 1}, fade_speed);
+		}
+
+	center();
+	}
+
+$(document).ready(function()
+	{
+	//save some time with variables:
+	var $files = $("#files");
+
+	var $link_compress = $("#link-compress");
+	var $link_decompress = $("#link-decompress");
+
+	var $link_cancel = $("#link-cancel");
+	var $link_upload = $("#link-upload");
+	var $link_options = $("#link-options");
+	var $link_finish = $("#link-finish");
+
+	var $options_tablerow  = $(".single#options table").find("tr");
+	var $input_algorithm = $("#input-algorithm");
+	var $input_inputblocksize = $("#input-inputblocksize"); 
+	var $input_outputblocksize = $("#input-outputblocksize");
+	var $input_ruleutility = $("#input-ruleutility");
+	var $link_applyoptions = $("#link-applyoptions");
+
+	var $link_restart = $("#link-restart");
+	var $output_files = $("#output-files");
+	
+	var $mode = $("#mode");
+	var $mode_option = $("#mode-option");
+
+ 	jQuery.event.props.push('dataTransfer');
+	//set up display:
+	center();
+	$(".single").not(".active").css("display", "none");
+	//set up file handler:
+	$("#files").on("change", handleFile);
+	
+
+	//set compressor up:
+	compressor.set("log_callback", log);
+
+	//fade in and centre beginning one:
+	$("#beginning").animate({opacity:1}, fade_speed);
+	
+
+	//follow link to new position:
+	$("span.link").on("click", function(e)
+		{
+		var $this = $(this);
+		var target = $this.attr("target");
+		if(target) goto(target);
+		});
+
+	//various link clicking events:
+	//###first page###
+	$link_compress.on("click", function()
+		{
+		todo = "add";
+		$mode.html("compress");
+		$mode_option.show();
+		$link_compress.addClass("selected");
+		$link_decompress.removeClass("selected");
+		});
+	$link_decompress.on("click", function()
+		{
+		todo = "decompress";
+		$mode.html("decompress");
+		$mode_option.hide();
+		$link_compress.removeClass("selected");
+		$link_decompress.addClass("selected");
+		});
+	//###upload page###
+	$link_cancel.on("click", function()
+		{
+		cancel();
+		});
+	$link_upload.on("click", function()
+		{
+		$files.trigger("click");
+		});
+	$link_options.on("click", function()
+		{
+		var actual_algorithm = compressor.set("algorithm");
+		for(var i in available_algorithms) 
+			if(available_algorithms[i] == actual_algorithm)
+				actual_algorithm = i;
+		$input_algorithm.children(":contains("+actual_algorithm+")").trigger("click");
+
+		$input_inputblocksize.val(compressor.set("input_block_size")/1000);
+		$input_outputblocksize.val(compressor.set("compressed_block_size")/1000);
+		$input_ruleutility.val(compressor.set("rule_utility"));
+		});
+	$link_finish.on("click", function()
+		{
+		if(todo == "add") //if we are compressing:
+			{
+			startAnimation();
+			compressor.finalizeCompression(function(compressed)
+				{
+				var b = new Blob([compressed]);
+				var url = window.URL.createObjectURL(b);
+				$output_files.append('<a href="'+url+'" download="output.jam">output.jam</a><br>');
+				stopAnimation();
+				});
+			}
+		});
+	//###options page###
+	$input_algorithm.on("click",".link", function(e)
+		{
+		var $this = $(this);
+		if(!$this.hasClass("selected"))
+			{
+			var algorithm = $(this).html();
+
+			$input_algorithm.children().removeClass("selected");
+			$this.addClass("selected");
+		
+			var $remove_these = $options_tablerow.filter("[algorithms]").filter(":not([algorithms~="+algorithm+"])");
+			var $keep_these = $options_tablerow.filter("[algorithms~="+algorithm+"]");
+
+			$remove_these.hide();
+			$keep_these.show();
+			center();
+			}
+		});
+	$link_applyoptions.on("click", function()
+		{
+		var current_algorithm = compressor.set("algorithm");
+		var selected_algorithm = $input_algorithm.children(".selected").html();
+
+		selected_algorithm = available_algorithms[selected_algorithm];
+		if(current_algorithm != selected_algorithm)
+			{
+			compressor.set("algorithm", selected_algorithm);
+			cancel();
+			log("general", "Algorithm changed to " + selected_algorithm +".");
+			}
+
+		//set all options here (quicker but more manual way to do it):
+		compressor.set("input_block_size", $input_inputblocksize.val()*1000);
+		compressor.set("compressed_block_size", $input_outputblocksize.val()*1000);
+		compressor.set("rule_utility", $input_ruleutility.val());
+		log("general", "Options updated.");
+		});
+	//###finish page ###
+	$link_restart.on("click", function() {$link_cancel.trigger("click");});
+
+	var $input = $("#container");
+
+	//let user know when a file is dragged onto the window:
+	var dragging_over = false;	
+	$input.on("dragover", function(e)
+		{
+		e.preventDefault();
+		if(!dragging_over)
+			{
+			dragging_over = true;
+			log("general", "Drop files to "+ ((todo=="add")? "compress" : "decompress") + ".");
+			setTimeout(function(){dragging_over = false}, 2500);
+			}
+		return false;
+		});
+	$input.on("drop", handleFile);
+
+	$(window).on("resize", center);
+	});
+
+</script>
+</body>

@@ -1,0 +1,155 @@
+.dragging {
+	width:300px;
+	height:300px;
+	background-color:rgb(150,150,250);
+
+}
+
+
+/* Stuff */
+
+* {
+	padding:0px;
+	margin:0px;
+}
+
+table {
+	border-spacing:0px;
+}
+
+body {
+	padding:0px;
+	margin:0px;
+	background:black url('../img/bg.png');
+	color:white;
+	font-family: 'Source Code Pro','Lucida Console', monospace;
+}
+
+
+p { padding:5px 0px;}
+
+td { 
+	padding:2px 50px 2px 0px;
+	margin:2px;
+	}
+
+a, .link {
+	cursor:pointer;
+	text-decoration:none;
+	color:rgb(200,200,255);
+}
+
+h1 {
+	display:none;
+}
+
+#container {
+	position:absolute;
+	height:100%;
+	width:100%;
+	overflow:hidden;
+}
+
+#inner-container {
+	position:relative;
+	top:0px;
+	left:0px;
+	width:500px;
+	margin:0px auto;
+}
+
+#contents {
+	position:absolute;
+	width:100%;
+	padding:0px;
+	/* top:-x00% where x is page number. */
+}
+
+.controls {
+	text-align:right;
+}
+
+.center {
+	text-align:center;
+}
+
+.selected {
+	color:rgb(255,255,255) !important;
+}
+
+.overlay {
+	position:absolute;
+	top:0px;
+	left:0px;
+	height:100%;
+	width:100%;
+}
+
+.single {
+	position:relative;
+	padding:10px 0px;
+	opacity:0.2;
+}
+
+input {
+	background-color:black;
+	border:1px solid rgb(50,50,50);
+	color:white;
+	font-size:12pt;
+	font-family: 'Source Code Pro','Lucida Console', monospace;
+	width:84px;
+}
+
+#progress-bar {
+	position:relative;
+	margin:10px 5px;
+	height:35px;
+	border:1px solid rgb(50,50,50);
+}
+
+#progress-inner {
+	position:absolute;
+	top:0px;
+	left:0px;
+	height:100%;
+	width:0%;
+	background:rgb(150,20,20) url('../img/loading.png') 0px 0px;
+}
+
+#progress-value {
+	position:absolute;
+	top:0px;
+	left:0px;
+	width:100%;
+	height:100%;
+	line-height:35px;
+	text-align:center;
+	color:white;
+	background-image:url('../img/loading-gradient.png');
+}
+
+#log-container {
+	position:absolute;
+	overflow:visible;
+	bottom:0px;
+	width:100%;
+}
+
+#log {
+	position:relative;
+	width:500px;
+	margin:0px auto 15px auto;
+	overflow:visible;
+	font-size:12px;
+}
+
+#log-inner {
+	position:absolute;
+	bottom:0px;
+	color:rgb(200,200,200);
+}
+
+
+
+
+
