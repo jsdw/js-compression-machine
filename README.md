@@ -4,7 +4,7 @@ Learning about certain compression algorithms, I was inspired to implement some 
 
 Read more [here](http://unbui.lt/#!/post/compression-machine/)
 
-See the in-browser compression algorithms in action [here](http://unbui.lt/projects/compressor/)
+See the in-browser compression algorithms in action [here](https://jsdw.github.io/js-fractal-explorer/)
 
 ## Algorithms implemented
 
